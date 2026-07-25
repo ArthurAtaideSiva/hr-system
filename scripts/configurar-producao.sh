@@ -2,58 +2,37 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+DOMAIN="sigmaturing.com.br"
+WWW_DOMAIN="www.sigmaturing.com.br"
+PUBLIC_IP="129.121.42.110"
 
-read -rp "Domínio completo (ex.: sistema.empresa.com.br): " DOMAIN
-read -rp "E-mail para o certificado Let's Encrypt: " EMAIL
-
-if [[ -z "$DOMAIN" || -z "$EMAIL" ]]; then
-  echo "Domínio e e-mail são obrigatórios."
+if [[ ! -f .env.production ]]; then
+  echo ".env.production não encontrado. Use o arquivo fornecido no pacote."
   exit 1
 fi
 
-SECRET_KEY="$(openssl rand -hex 48)"
-MONGO_PASSWORD="$(openssl rand -base64 32 | tr -d '/+=' | cut -c1-32)"
+read -rp "E-mail para o certificado Let's Encrypt: " EMAIL
+if [[ -z "$EMAIL" ]]; then
+  echo "O e-mail é obrigatório."
+  exit 1
+fi
 
-cat > .env.production <<ENV
-FLASK_ENV=production
-PORT=5000
-SECRET_KEY=${SECRET_KEY}
-DB_NAME=hr-system
-MONGO_ROOT_USERNAME=inagro_admin
-MONGO_ROOT_PASSWORD=${MONGO_PASSWORD}
-ALLOWED_ORIGINS=https://${DOMAIN}
-COOKIE_SECURE=true
-COOKIE_SAMESITE=Lax
-COOKIE_NAME=hr_session
-TOKEN_HOURS=8
-MAX_FILE_SIZE=104857600
-ENABLE_SCHEDULER=false
-MONGO_SERVER_SELECTION_TIMEOUT_MS=5000
-MONGO_CONNECT_TIMEOUT_MS=5000
-MONGO_SOCKET_TIMEOUT_MS=20000
-MONGO_MIN_POOL_SIZE=1
-MONGO_MAX_POOL_SIZE=50
-ENV
+mkdir -p nginx/conf.d certbot/www certbot/conf backups
+cp nginx/templates/http.conf.template nginx/conf.d/default.conf
 
-chmod 600 .env.production
-sed "s/__DOMAIN__/${DOMAIN}/g" nginx/templates/http.conf.template > nginx/conf.d/default.conf
-
-echo "Arquivo .env.production criado."
-echo "Senha do MongoDB: ${MONGO_PASSWORD}"
-echo "Guarde essa senha em local seguro."
-
-echo "Subindo aplicação em HTTP para emissão do certificado..."
+echo "Subindo MongoDB Community, aplicação e Nginx em HTTP..."
 docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build mongodb app nginx
 
-echo "Solicitando certificado Let's Encrypt..."
+echo "Solicitando certificado para ${DOMAIN} e ${WWW_DOMAIN}..."
 docker compose --env-file .env.production -f docker-compose.prod.yml run --rm certbot certonly \
   --webroot --webroot-path /var/www/certbot \
   --email "$EMAIL" --agree-tos --no-eff-email \
-  -d "$DOMAIN"
+  -d "$DOMAIN" -d "$WWW_DOMAIN"
 
-sed "s/__DOMAIN__/${DOMAIN}/g" nginx/templates/https.conf.template > nginx/conf.d/default.conf
+cp nginx/templates/https.conf.template nginx/conf.d/default.conf
 
 docker compose --env-file .env.production -f docker-compose.prod.yml exec nginx nginx -t
 docker compose --env-file .env.production -f docker-compose.prod.yml exec nginx nginx -s reload
 
 echo "Deploy concluído: https://${DOMAIN}"
+echo "IP público configurado: ${PUBLIC_IP}"

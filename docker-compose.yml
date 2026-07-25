@@ -42,7 +42,9 @@ services:
 
 volumes:
   mongodb_data:
+    name: inagro_mongodb_data
   uploads_data:
+    name: inagro_uploads_data
 
 networks:
   inagro_network:

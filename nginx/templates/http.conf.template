@@ -1,7 +1,7 @@
 server {
     listen 80;
     listen [::]:80;
-    server_name __DOMAIN__;
+    server_name sigmaturing.com.br www.sigmaturing.com.br;
 
     client_max_body_size 1G;
 
@@ -20,4 +20,11 @@ server {
         proxy_send_timeout 3600s;
         proxy_read_timeout 3600s;
     }
+}
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name 129.121.42.110;
+    return 301 http://sigmaturing.com.br$request_uri;
 }

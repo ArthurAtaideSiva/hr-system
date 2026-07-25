@@ -1,77 +1,79 @@
-# Deploy do HR System em servidor dedicado HostGator
+# Deploy HostGator — sigmaturing.com.br
 
-Este pacote mantém o `docker-compose.yml` local e adiciona uma configuração separada para produção:
+Configuração aplicada para:
 
-- `docker-compose.prod.yml`: aplicação, MongoDB, Nginx e Certbot.
-- `nginx/`: proxy reverso e HTTPS.
-- `scripts/configurar-producao.sh`: cria o ambiente, sobe os containers e emite o certificado.
-- `scripts/backup-mongodb.sh`: cria backup compactado do banco.
-- `.env.production.example`: referência das variáveis.
+- IP público: `129.121.42.110`
+- domínio principal: `sigmaturing.com.br`
+- domínio alternativo: `www.sigmaturing.com.br`
+- MongoDB Community executando dentro do Docker
+- sem MongoDB Atlas
+- banco persistente no volume `mongodb_data`
+- uploads persistentes no volume `uploads_data`
 
-## Antes de começar
+## 1. DNS
 
-O servidor precisa ter Linux, Docker Engine, Docker Compose Plugin, Git/Unzip e OpenSSL. O domínio deve possuir um registro DNS do tipo A apontando para o IP público do servidor.
+No painel do domínio, configure:
 
-No firewall, libere apenas:
+```text
+Tipo A   @     129.121.42.110
+Tipo A   www   129.121.42.110
+```
 
-- TCP 22 para SSH;
-- TCP 80 para HTTP;
-- TCP 443 para HTTPS.
+A emissão do HTTPS só funcionará depois que os dois registros apontarem para o servidor.
 
-Não exponha as portas 5000, 27017 ou 27018.
+## 2. Requisitos no servidor
 
-## Instalação
+Instale apenas Docker Engine, Docker Compose Plugin, unzip e OpenSSL. Python, Flask, Gunicorn, Nginx e MongoDB são instalados pelas imagens Docker.
 
-Envie a pasta para o servidor, acesse-a pelo SSH e execute:
+Libere no firewall:
+
+- TCP 22 (SSH)
+- TCP 80 (HTTP)
+- TCP 443 (HTTPS)
+
+Não exponha MongoDB (`27017`) nem a aplicação (`5000`) diretamente à internet.
+
+## 3. Subir pela primeira vez
+
+Entre na pasta que contém `docker-compose.prod.yml`:
 
 ```bash
+cd /home/arthurataide/sites/rh_inagro/hr-system\(1\)
 chmod +x scripts/*.sh
 ./scripts/configurar-producao.sh
 ```
 
-O script solicitará domínio e e-mail, gerará automaticamente uma nova `SECRET_KEY` e uma senha forte para o MongoDB, subirá a aplicação e configurará HTTPS.
+O script pedirá apenas o e-mail usado pelo Let's Encrypt.
 
-## Verificação
-
-```bash
-docker compose --env-file .env.production -f docker-compose.prod.yml ps
-curl -I https://SEU_DOMINIO
-```
-
-## Atualização do sistema
+## 4. Atualizações futuras
 
 ```bash
 docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build
 ```
 
-Não use `docker compose down -v` em produção: o parâmetro `-v` apaga o banco e os uploads.
+Não use `docker compose down -v`, pois `-v` remove os volumes e pode apagar banco e uploads.
 
-## Backup manual
+## 5. Verificar containers e logs
+
+```bash
+docker compose --env-file .env.production -f docker-compose.prod.yml ps
+docker compose --env-file .env.production -f docker-compose.prod.yml logs -f app
+docker compose --env-file .env.production -f docker-compose.prod.yml logs -f mongodb
+docker compose --env-file .env.production -f docker-compose.prod.yml logs -f nginx
+```
+
+## 6. Volumes persistentes
+
+```bash
+docker volume ls | grep inagro
+```
+
+Os dados sobrevivem a `docker compose down`, reinicializações e reconstruções das imagens. Só são removidos com exclusão explícita dos volumes.
+
+## 7. Backup do MongoDB
 
 ```bash
 ./scripts/backup-mongodb.sh
 ```
 
-Para executar diariamente às 02:30:
-
-```bash
-crontab -e
-```
-
-Adicione, ajustando o caminho:
-
-```cron
-30 2 * * * cd /opt/hr-system && ./scripts/backup-mongodb.sh >> /var/log/hr-system-backup.log 2>&1
-15 3 * * * cd /opt/hr-system && ./scripts/renovar-certificado.sh >> /var/log/hr-system-certbot.log 2>&1
-```
-
-## Logs
-
-```bash
-docker compose --env-file .env.production -f docker-compose.prod.yml logs -f app
-docker compose --env-file .env.production -f docker-compose.prod.yml logs -f nginx
-```
-
-## Observação importante
-
-O pacote não contém senhas reais nem o `.env` local. O arquivo `.env.production` é criado diretamente no servidor pelo script e deve permanecer privado.
+Os backups são gravados na pasta `backups/` e os arquivos com mais de 14 dias são removidos automaticamente.
